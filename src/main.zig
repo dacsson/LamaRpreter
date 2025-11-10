@@ -47,16 +47,20 @@ test "parse" {
     var allocator = std.testing.allocator;
 
     const file_path = "/home/safonoff/Uni/VirtualMachines/LamaRpreter/dump/test1.bc";
-    defer allocator.free(file_path);
 
     std.debug.print("File location: {s}.\n", .{file_path});
 
     const bf = try LamaRpreter.parse(&allocator, file_path);
-    try LamaRpreter.dump(bf);
+    defer {
+        allocator.free(bf.code_section);
+        bf.public_symbols.deinit(allocator);
+        for (bf.string_table.items) |item| {
+            allocator.free(item);
+        }
+        bf.string_table.deinit(allocator);
+        allocator.destroy(bf);
+    }
 
-    // Print xxd to compare
-    var cmd = std.process.Child.init(&[_][]const u8{ "xxd", file_path }, allocator);
-    try cmd.spawn();
-    _ = try cmd.wait();
-    try std.testing.expectEqual(@as(usize, 1), bf.code.items.len);
+    try std.testing.expect(std.mem.eql(u8, "main", bf.string_table.items[0]));
+    try std.testing.expectEqual(@as(usize, 49), bf.code_section.len);
 }

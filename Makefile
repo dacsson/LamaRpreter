@@ -70,13 +70,17 @@ build:
 	@echo "LamaRpreter copied to $(BUILD_DIR)/"
 
 # === 3. run ===
-run:
+run: build
 	@if [ -z "$(FILE)" ]; then \
         echo "Error: FILE=<name>.bs is required"; \
         exit 1; \
     fi
 	@echo "Running LamaRpreter on $(FILE)..."
 	@$(BUILD_DIR)/LamaRpreter "$(FILE)"
+
+test: build
+	@echo "Running tests..."
+	@zig build test --summary all
 
 # === 4. clean ===
 clean:

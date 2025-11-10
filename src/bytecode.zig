@@ -85,12 +85,25 @@ pub const Instruction = union(enum) {
     /// Decode single bytecode instruction from an encoding (byte)
     pub fn from(encoding: u8) ?*Instruction {
         const opcode = encoding & 0xF0;
-        const operands = encoding & 0x0F;
+        const subopcode = encoding & 0x0F;
 
         const instr = switch (opcode) {
             0 => &Instruction{ .BINOP = .{
-                .op = @enumFromInt(operands - 1),
+                .op = @enumFromInt(subopcode - 1),
             } },
+            1 => switch (subopcode) {
+                // 0 => &Instruction{ .CONST = .{
+                //     .index = operands;
+                // } },
+
+                else => null,
+            },
+            5 => switch (subopcode) {
+                2 => &Instruction{ .CONST = .{
+                    .index = subopcode,
+                } },
+                else => null,
+            },
             else => null,
         };
 
