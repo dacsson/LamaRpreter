@@ -26,6 +26,7 @@ pub const ValueRel = enum {
 };
 
 pub const Instruction = union(enum) {
+    NOP,
     /// See `Op` enum
     ///
     /// Example: BINOP ("*")
@@ -48,8 +49,8 @@ pub const Instruction = union(enum) {
     ///
     /// Example: BEGIN ("main", 2, 0, [], [], [])
     BEGIN: struct {
-        args: u8,
-        locals: u8,
+        args: i32,
+        locals: i32,
     },
     /// Store a value somewhere, depending on ValueRel
     ///
@@ -82,37 +83,27 @@ pub const Instruction = union(enum) {
         // TODO: array
     },
 
-    /// Decode single bytecode instruction from an encoding (byte)
-    pub fn from(encoding: u8) ?*Instruction {
-        const opcode = encoding & 0xF0;
-        const subopcode = encoding & 0x0F;
+    // pub fn decode(byte: u8) type {
+    //     const opcode = byte & 0xF0;
+    //     // const subopcode = byte & 0x0F;
 
-        const instr = switch (opcode) {
-            0 => &Instruction{ .BINOP = .{
-                .op = @enumFromInt(subopcode - 1),
-            } },
-            1 => switch (subopcode) {
-                // 0 => &Instruction{ .CONST = .{
-                //     .index = operands;
-                // } },
+    //     switch (opcode) {
+    //         // BINOP
+    //         0 => return @Type(Instruction.BINOP),
+    //         // 1 => switch (subopcode) {
+    //         //     // 0 => &Instruction{ .CONST = .{
+    //         //     //     .index = operands;
+    //         //     // } },
 
-                else => null,
-            },
-            5 => switch (subopcode) {
-                2 => &Instruction{ .CONST = .{
-                    .index = subopcode,
-                } },
-                else => null,
-            },
-            else => null,
-        };
-
-        return @constCast(instr);
-    }
+    //         //     else => null,
+    //         // },
+    //         // 5 => switch (subopcode) {
+    //         //     2 => &Instruction{ .CONST = .{
+    //         //         .index = subopcode,
+    //         //     } },
+    //         //     else => null,
+    //         // },
+    //         else => null,
+    //     }
+    // }
 };
-
-test "instruction_from_encoding" {
-    const instruction = Instruction.from(0x01);
-    const eq = std.meta.eql(instruction.?.*, Instruction{ .BINOP = .{ .op = .ADD } });
-    try std.testing.expect(eq);
-}

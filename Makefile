@@ -1,27 +1,35 @@
-# Makefile for Lama Stack Machine
-
 # === Required Variables ===
-# LAMA_PATH: Path to the Lama root directory (must be provided)
-# LAMAC: Path to the Lama compiler (e.g., LAMAC binary)
-
-# Check if LAMA_PATH is set
-ifeq ($(LAMA_PATH),)
-$(error LAMA_PATH is required. Use: make LAMA_PATH=/path/to/lama)
-endif
-
-ifeq ($(LAMAC),)
-$(error LAMAC is required. Use: make LAMAC=/path/to/LAMAC)
-endif
-
-# === Directories ===
-DUMP_DIR := dump
-BUILD_DIR := build
+LAMA_PATH ?= $(shell pwd)/../Lama
+LAMAC ?= $(LAMA_PATH)/src/lamac
 RUNTIME_DIR := $(LAMA_PATH)/runtime
 STD_LIB_DIR := $(LAMA_PATH)/stdlib/x64
+BUILD_DIR := build
+DUMP_DIR := dump
+
+# Export them globally
+export LAMA_PATH
+export LAMAC
+export RUNTIME_DIR
+export STD_LIB_DIR
 
 # === Targets ===
+.PHONY: help deps build run clean
 
-.PHONY: help dump build run clean
+deps:
+	@echo "Installing dependencies..."
+	@rm -rf Lama
+	@git clone https://github.com/PLTools/Lama
+	@cd Lama && \
+		opam install . --deps-only && \
+		make && \
+		cd src && make && cd .. && \
+		cd runtime && make && cd .. && \
+		cd runtime32 && make && cd .. && \
+		cd stdlib && make && cd .. && \
+		cd ..
+	@echo "✅ Dependencies installed."
+	@echo "LAMA_PATH=$(LAMA_PATH)"
+	@echo "LAMAC=$(LAMAC)"
 
 help:
 	@echo "Usage: make run FILE=<name>.bs"
@@ -76,7 +84,7 @@ run: build
         exit 1; \
     fi
 	@echo "Running LamaRpreter on $(FILE)..."
-	@$(BUILD_DIR)/LamaRpreter "$(FILE)"
+	@$(BUILD_DIR)/LamaRpreter --parse-only "$(FILE)"
 
 test: build
 	@echo "Running tests..."

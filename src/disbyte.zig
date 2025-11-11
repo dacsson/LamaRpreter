@@ -42,6 +42,9 @@ const BytefileError = error{
     NoCodeSection,
 };
 
+/// Parse a bytecode file into a Bytefile struct.
+/// Leaves code section raw (as raw bytes) to be interpreted later,
+/// while all other sections are parsed and stored to be easily accessed.
 pub fn parse(allocator: *std.mem.Allocator, fname: []const u8) !*Bytefile {
     const file = try std.fs.cwd().openFile(fname, .{ .mode = .read_only });
     defer file.close();
@@ -80,7 +83,6 @@ pub fn parse(allocator: *std.mem.Allocator, fname: []const u8) !*Bytefile {
 
     // String table
     var string_table = std.ArrayList([]const u8).empty;
-
     var bytes_read: usize = 0;
     while (bytes_read < stringtab_size) {
         const string = try reader.interface.takeDelimiter(0);
@@ -91,12 +93,13 @@ pub fn parse(allocator: *std.mem.Allocator, fname: []const u8) !*Bytefile {
         bytes_read += if (string.?.len > 0) string.?.len + 1 else 0;
     }
 
-    // No code section
+    // No code section check
     if (reader.atEnd()) {
         std.debug.print("[ERROR] Empty code section\n", .{});
         return BytefileError.NoCodeSection;
     }
 
+    // Keep code section raw
     var code_section: []u8 = try allocator.alloc(u8, 0);
     var byte: u8 = undefined;
     while (byte != 0xff) {
