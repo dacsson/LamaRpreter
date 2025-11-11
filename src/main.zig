@@ -35,32 +35,8 @@ pub fn main() !void {
             return;
         }
         const file_path = args[2];
-        const bf = try LamaRpreter.parse(&gpa, file_path);
-        try LamaRpreter.dump(bf);
+
+        try LamaRpreter.run(&gpa, file_path);
         return;
     }
-}
-
-test "parse" {
-    std.testing.refAllDecls(@This());
-
-    var allocator = std.testing.allocator;
-
-    const file_path = "/home/safonoff/Uni/VirtualMachines/LamaRpreter/dump/test1.bc";
-
-    std.debug.print("File location: {s}.\n", .{file_path});
-
-    const bf = try LamaRpreter.parse(&allocator, file_path);
-    defer {
-        allocator.free(bf.code_section);
-        bf.public_symbols.deinit(allocator);
-        for (bf.string_table.items) |item| {
-            allocator.free(item);
-        }
-        bf.string_table.deinit(allocator);
-        allocator.destroy(bf);
-    }
-
-    try std.testing.expect(std.mem.eql(u8, "main", bf.string_table.items[0]));
-    try std.testing.expectEqual(@as(usize, 49), bf.code_section.len);
 }

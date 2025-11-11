@@ -26,6 +26,10 @@ pub const ValueRel = enum {
 };
 
 pub const Instruction = union(enum) {
+    NOP,
+    /// Marks the end of the procedure definition. When executed
+    /// returns the top value to the caller of this procedure.
+    END,
     /// See `Op` enum
     ///
     /// Example: BINOP ("*")
@@ -48,8 +52,8 @@ pub const Instruction = union(enum) {
     ///
     /// Example: BEGIN ("main", 2, 0, [], [], [])
     BEGIN: struct {
-        args: u8,
-        locals: u8,
+        args: i32,
+        locals: i32,
     },
     /// Store a value somewhere, depending on ValueRel
     ///
@@ -66,53 +70,27 @@ pub const Instruction = union(enum) {
         index: i32,
     },
     /// Call a function
-    CALL: union(enum) {
+    CALL: struct {
         /// Calls a function with 𝑛 arguments. The bytecode for the
         /// function begins at 𝑙 (given as an offset from the start of the byte
         /// code). Pushes the returned value onto the stack.
-        FUNC: struct {
-            offset: i32,
-            n: i32,
-        },
-        BUILTIN: struct {
-            /// Name of the builtin function
-            /// "Lread", "Lwrite", "Llength", "Lstring"
-            name: []const u8,
-        },
+        // FUNC: struct {
+        offset: ?i32,
+        n: ?i32,
+        // },
+        // BUILTIN: struct {
+        /// Name of the builtin function
+        /// "Lread", "Lwrite", "Llength", "Lstring"
+        name: ?[]const u8,
+        builtin: bool,
+        // },
         // TODO: array
     },
-
-    /// Decode single bytecode instruction from an encoding (byte)
-    pub fn from(encoding: u8) ?*Instruction {
-        const opcode = encoding & 0xF0;
-        const subopcode = encoding & 0x0F;
-
-        const instr = switch (opcode) {
-            0 => &Instruction{ .BINOP = .{
-                .op = @enumFromInt(subopcode - 1),
-            } },
-            1 => switch (subopcode) {
-                // 0 => &Instruction{ .CONST = .{
-                //     .index = operands;
-                // } },
-
-                else => null,
-            },
-            5 => switch (subopcode) {
-                2 => &Instruction{ .CONST = .{
-                    .index = subopcode,
-                } },
-                else => null,
-            },
-            else => null,
-        };
-
-        return @constCast(instr);
-    }
+    /// Marks the following bytecode as corresponding to line n
+    /// in the source text. Only used for diagnostics.
+    LINE: struct {
+        n: i32,
+    },
+    /// Removes the top value from the stack.
+    DROP,
 };
-
-test "instruction_from_encoding" {
-    const instruction = Instruction.from(0x01);
-    const eq = std.meta.eql(instruction.?.*, Instruction{ .BINOP = .{ .op = .ADD } });
-    try std.testing.expect(eq);
-}
