@@ -21,24 +21,33 @@ const InterpreterError = error{
     InvalidOpcode,
 };
 
+const InterpreterOpts = struct {
+    parse_only: bool = false,
+    max_stack_size: usize = 1024 * 1024,
+};
+
 pub const Interpreter = struct {
     operand_stack: std.ArrayList(u64),
+    /// Decoded bytecode file with raw code section
     bf: *dt.Bytefile,
+    /// Instruction pointer
     ip: usize,
     allocator: *std.mem.Allocator,
+    opts: InterpreterOpts,
+    /// Collect found instructions, only when `parse_only` is true
+    instructions: std.ArrayList(bt.Instruction),
 
-    pub fn new(allocator: *std.mem.Allocator, bf: *dt.Bytefile) !*Interpreter {
+    pub fn new(allocator: *std.mem.Allocator, bf: *dt.Bytefile, opts: InterpreterOpts) !*Interpreter {
         const intr = allocator.create(Interpreter) catch unreachable;
         const operand_stack = std.ArrayList(u64).empty;
-        // try operand_stack.append(allocator.*, 0); // fake argc
-        // try operand_stack.append(allocator.*, 0); // fake argv
-        // try operand_stack.append(allocator.*, 2);
 
         intr.* = Interpreter{
             .operand_stack = operand_stack,
             .bf = bf,
             .ip = 0,
             .allocator = allocator,
+            .opts = opts,
+            .instructions = std.ArrayList(bt.Instruction).empty,
         };
         return intr;
     }
@@ -53,6 +62,10 @@ pub const Interpreter = struct {
                 std.debug.print("Instruction: NOP\n", .{});
             } else {
                 std.debug.print("Instruction: {}\n", .{instr.?});
+
+                if (self.opts.parse_only) {
+                    self.instructions.append(self.allocator.*, instr.?) catch unreachable;
+                }
             }
         }
     }
@@ -101,6 +114,8 @@ pub const Interpreter = struct {
     // }
 
     pub fn decode(self: *Interpreter, encoding: u8) !?bt.Instruction {
+        if (encoding == 0xff) return null;
+
         const opcode = encoding & 0xF0;
         const subopcode = encoding & 0x0F;
 
@@ -117,16 +132,36 @@ pub const Interpreter = struct {
                 0 => bt.Instruction{ .CONST = .{
                     .index = try self.next(i32),
                 } },
-
-                else => null,
+                0x6 => bt.Instruction.END,
+                0x8 => bt.Instruction.DROP,
+                else => return InterpreterError.InvalidOpcode,
             },
+            0x20 => bt.Instruction{ .LOAD = .{
+                .index = try self.next(i32),
+                .rel = @enumFromInt(subopcode),
+            } },
             0x50 => switch (subopcode) {
                 2 => bt.Instruction{ .BEGIN = .{
                     .args = try self.next(i32),
                     .locals = try self.next(i32),
                 } },
-
-                else => null,
+                0xa => bt.Instruction{ .LINE = .{
+                    .n = try self.next(i32),
+                } },
+                else => return InterpreterError.InvalidOpcode,
+            },
+            0x40 => bt.Instruction{ .STORE = .{
+                .index = try self.next(i32),
+                .rel = @enumFromInt(subopcode),
+            } },
+            0x70 => switch (subopcode) {
+                0x1 => bt.Instruction{ .CALL = .{
+                    .builtin = true,
+                    .offset = null,
+                    .n = null,
+                    .name = "Lwrite",
+                } },
+                else => return InterpreterError.InvalidOpcode,
             },
             else => return InterpreterError.InvalidOpcode,
         };

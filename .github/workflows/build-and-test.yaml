@@ -19,3 +19,6 @@ jobs:
 
     - name: Run zig tests
       run: make test
+
+    - name: Run lama (source-file) tests
+      run: make test-lama
