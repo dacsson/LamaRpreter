@@ -15,7 +15,7 @@ pub const Op = enum {
     EQ, // ==
     NEQ, // !=
     AND, // &&, Tests if both integer operands are non-zero
-    OR, // ||, Tests if either of the operands is non-zero.
+    OR, // !!, Tests if either of the operands is non-zero.
 };
 
 pub const ValueRel = enum {
@@ -23,6 +23,15 @@ pub const ValueRel = enum {
     L, // Local
     A, // Function argument
     C, // Captured by closure
+};
+
+/// Built-in functions
+pub const Builtin = enum {
+    Lread,
+    Lwrite,
+    Llength,
+    Lstring, // Load string from string table
+    Barray,
 };
 
 pub const Instruction = union(enum) {
@@ -69,22 +78,17 @@ pub const Instruction = union(enum) {
         rel: ValueRel,
         index: i32,
     },
-    /// Call a function
+    /// Calls a function with 𝑛 arguments. The bytecode for the
+    /// function begins at 𝑙 (given as an offset from the start of the byte
+    /// code). Pushes the returned value onto the stack.
+    /// OR calls a builtin function.
     CALL: struct {
-        /// Calls a function with 𝑛 arguments. The bytecode for the
-        /// function begins at 𝑙 (given as an offset from the start of the byte
-        /// code). Pushes the returned value onto the stack.
-        // FUNC: struct {
         offset: ?i32,
         n: ?i32,
-        // },
-        // BUILTIN: struct {
         /// Name of the builtin function
         /// "Lread", "Lwrite", "Llength", "Lstring"
-        name: ?[]const u8,
+        name: ?Builtin,
         builtin: bool,
-        // },
-        // TODO: array
     },
     /// Marks the following bytecode as corresponding to line n
     /// in the source text. Only used for diagnostics.
