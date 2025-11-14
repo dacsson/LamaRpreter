@@ -16,9 +16,10 @@ Then check your version with `zig version`:
 
 ## Running
 
-You can run a `*.bc` file with the following command:
+You can run a `*.bc` file with the following commands:
 ```
 make run FILE=<path_to_bc_file>
+make run FILE=<path_to_bc_file> FLAGS="--parse-only" # dump bytecode disassembly
 ```
 
 Which will build the interpreter and run the bytecode file. The interpreter executable itself will be in `$(pwd)/build` directory.
@@ -39,4 +40,20 @@ Build Summary: 3/3 steps succeeded; 1/1 tests passed
 test success
 └─ run test 1 passed 8ms MaxRSS:5M
    └─ compile test Debug native cached 14ms MaxRSS:37M
+```
+
+# Project structure
+```
+.
+├── runtime             <- Lama runtime from OG repo
+│   └── ...
+├── src
+│   ├── bytecode.zig    <- Descriptor of Lama bytecode instructions
+│   ├── disbyte.zig     <- Disassembler of Lama bytecode
+│   ├── interpreter.zig <- Interpreter itself
+│   ├── main.zig
+│   ├── root.zig
+│   └── tests.zig       <- Internal tests for interpreter
+└── test-lama           <- Tests with actual input of Lama files
+    └── ...
 ```
