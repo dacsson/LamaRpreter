@@ -53,8 +53,12 @@ hex:
 	@mv "$$(basename "$(FILE)" .lama).bc" "$(DUMP_DIR)/" || echo "No .sm file found to move"
 	@echo "Bytecode dumped to $(DUMP_DIR)/$$(basename "$(FILE)" .lama).bc"
 
+build-runtime:
+	@echo "Building Lama runtime"
+	@cd runtime && make && cd ..
+
 # === 2. build ===
-build:
+build: build-runtime
 	@echo "Building LamaRpreter with Zig..."
 	@zig build
 	@mkdir -p "$(BUILD_DIR)"
@@ -68,7 +72,7 @@ run: build
         exit 1; \
     fi
 	@echo "Running LamaRpreter on $(FILE)..."
-	@$(BUILD_DIR)/LamaRpreter --parse-only "$(FILE)"
+	@$(BUILD_DIR)/LamaRpreter "$(FLAGS)" "$(FILE)"
 
 test: build
 	@echo "Running tests..."
