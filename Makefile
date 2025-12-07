@@ -5,6 +5,7 @@ RUNTIME_DIR := $(LAMA_PATH)/runtime
 STD_LIB_DIR := $(LAMA_PATH)/stdlib/x64
 BUILD_DIR := build
 DUMP_DIR := dump
+MODE ?= ReleaseSafe
 
 # Export them globally
 export LAMA_PATH
@@ -16,12 +17,14 @@ export STD_LIB_DIR
 .PHONY: help deps build run clean
 
 help:
-	@echo "Usage: make run FILE=<name>.bs"
+	@echo "Usage: make run FILE=<name>.bs [MODE=<mode>]"
 	@echo "Required env variables: LAMA_PATH=<path-to-lama-src> LAMAC=<path-to-lamac>"
 	@echo "  dump FILE=<name>.lama      Compile .lama file to stack machine code (.sm) and move to ./dump/"
+	@echo "  hex FILE=<name>.lama       Compile .lama file to bytecode (.bc) and move to ./dump/"
 	@echo "  build                      Build LamaRpreter with Zig and copy to ./build/"
 	@echo "  run FILE=<name>.bs         Run the compiled .bs file with LamaRpreter"
 	@echo "  clean                      Remove build and dump directories"
+	@echo "  mode                       Can be either <ReleaseFast|ReleaseSafe|Debug>, ReleaseSafe is the default mode"
 
 # === 1. dump ===
 dump:
@@ -60,7 +63,7 @@ build-runtime:
 # === 2. build ===
 build: build-runtime
 	@echo "Building LamaRpreter with Zig..."
-	@zig build
+	@zig build -Doptimize=$(MODE)
 	@mkdir -p "$(BUILD_DIR)"
 	@cp zig-out/bin/LamaRpreter "$(BUILD_DIR)/"
 	@echo "LamaRpreter copied to $(BUILD_DIR)/"
@@ -72,7 +75,7 @@ run: build
         exit 1; \
     fi
 	@echo "Running LamaRpreter on $(FILE)..."
-	@$(BUILD_DIR)/LamaRpreter "$(FLAGS)" "$(FILE)"
+	$(BUILD_DIR)/LamaRpreter $(FLAGS) $(FILE)
 
 test: build
 	@echo "Running tests..."

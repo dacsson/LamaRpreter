@@ -225,23 +225,11 @@ test "evaluate_binary_op" {
 
 //     try file.writeAll(&data);
 
-//     const bf = try LamaRpreter.parse(&allocator, file_path);
-//     defer {
-//         allocator.free(bf.code_section);
-//         bf.public_symbols.deinit(allocator);
-//         for (bf.string_table.items) |item| {
-//             allocator.free(item);
-//         }
-//         bf.string_table.deinit(allocator);
-//         allocator.destroy(bf);
-//     }
+//     const bf = try LamaRpreter.Bytefile.parse(&allocator, file_path);
+//     defer bf.free(&allocator);
 
 //     const interpreter = try LamaRpreter.Interpreter.new(&allocator, bf, .{ .max_stack_size = 1024 * 1024, .parse_only = false });
-//     defer {
-//         interpreter.instructions.deinit(allocator);
-//         interpreter.operand_stack.deinit(allocator);
-//         allocator.destroy(interpreter);
-//     }
+//     defer interpreter.free(&allocator);
 
 //     // var results = std.ArrayList(i32).empty;
 

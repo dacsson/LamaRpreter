@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const bt = @import("bytecode.zig");
+const util = @import("util.zig");
 
 const BytefileError = error{
     InvalidFileFormat,
@@ -103,7 +104,7 @@ pub const Bytefile = struct {
 
         // No code section check
         if (reader.atEnd()) {
-            std.debug.print("[ERROR] Empty code section\n", .{});
+            util.dbgs("[ERROR] Empty code section\n", .{});
             return BytefileError.NoCodeSection;
         }
 
@@ -131,25 +132,25 @@ pub const Bytefile = struct {
     }
 
     pub fn dump(self: *Bytefile) !void {
-        std.debug.print("--------- Bytefile Dump ----------\n", .{});
-        std.debug.print("  String Table Size: {d}\n", .{self.stringtab_size});
-        std.debug.print("  Global Area Size: {d}\n", .{self.global_area_size});
-        std.debug.print("  Public Symbols Number: {d}\n", .{self.public_symbols_number});
-        std.debug.print("  Overall code section bytes: {d}\n", .{self.code_section.len});
+        util.dbgs("--------- Bytefile Dump ----------\n", .{});
+        util.dbgs("  String Table Size: {d}\n", .{self.stringtab_size});
+        util.dbgs("  Global Area Size: {d}\n", .{self.global_area_size});
+        util.dbgs("  Public Symbols Number: {d}\n", .{self.public_symbols_number});
+        util.dbgs("  Overall code section bytes: {d}\n", .{self.code_section.len});
 
-        std.debug.print("  Public Symbols:\n", .{});
+        util.dbgs("  Public Symbols:\n", .{});
         for (self.public_symbols.items) |symbol| {
-            std.debug.print("    Symbol: {}, Name: {}\n", .{ symbol[0], symbol[1] });
+            util.dbgs("    Symbol: {}, Name: {}\n", .{ symbol[0], symbol[1] });
         }
 
-        std.debug.print("  String Table:\n", .{});
+        util.dbgs("  String Table:\n", .{});
         for (self.string_table.items) |string| {
-            std.debug.print("    String: {s} | {x}\n", .{ string, string });
+            util.dbgs("    String: {s} | {x}\n", .{ string, string });
         }
 
-        std.debug.print("  Code:\n", .{});
+        util.dbgs("  Code:\n", .{});
         for (self.code_section) |instruction| {
-            std.debug.print("    Opcode: {}\n", .{instruction});
+            util.dbgs("    Opcode: {}\n", .{instruction});
         }
     }
 };

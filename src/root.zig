@@ -27,9 +27,10 @@ pub fn run_parse(allocator: *std.mem.Allocator, file_path: []const u8) !std.Arra
     try bf.dump();
     const interpreter = try Interpreter.new(allocator, bf, .{ .max_stack_size = 1024 * 1024, .parse_only = true });
     defer {
+        // Move ownership of instructins to callee
         // interpreter.instructions.deinit(allocator.*);
         interpreter.operand_stack.deinit(allocator.*);
-        interpreter.call_stack.deinit(allocator.*);
+        // interpreter.call_stack.deinit(allocator.*);
         allocator.destroy(interpreter);
     }
     try interpreter.run();
