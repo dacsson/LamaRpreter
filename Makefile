@@ -13,9 +13,6 @@ export LAMAC
 export RUNTIME_DIR
 export STD_LIB_DIR
 
-# === Targets ===
-.PHONY: help deps build run clean
-
 help:
 	@echo "Usage: make run FILE=<name>.bs [MODE=<mode>]"
 	@echo "Required env variables: LAMA_PATH=<path-to-lama-src> LAMAC=<path-to-lamac>"
@@ -110,6 +107,6 @@ clean:
 	@rm -rf "$(DUMP_DIR)"
 	@echo "Done."
 
-# === Default target ===
-.PHONY: all
+# === target ===
+.PHONY: help deps build run clean dump
 all: help

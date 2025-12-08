@@ -4,6 +4,7 @@ const bt = @import("bytecode.zig");
 const dt = @import("disbyte.zig");
 const intr = @import("interpreter.zig");
 
+pub const Object = @import("object.zig").Object;
 pub const Bytefile = dt.Bytefile;
 pub const Instruction = bt.Instruction;
 pub const Interpreter = intr.Interpreter;

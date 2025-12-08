@@ -150,7 +150,7 @@ test "evaluate_binary_op" {
     const interpreter = try LamaRpreter.Interpreter.new(&allocator, bf, .{ .max_stack_size = 1024 * 1024, .parse_only = false });
     defer interpreter.free(&allocator);
 
-    var results = std.ArrayList(i32).empty;
+    var results = std.ArrayList(LamaRpreter.Object).empty;
     defer results.deinit(allocator);
 
     // Test all 12 operations
@@ -177,19 +177,19 @@ test "evaluate_binary_op" {
         try results.append(allocator, res);
     }
 
-    try std.testing.expectEqual(5, results.items[0]); // +
-    try std.testing.expectEqual(1, results.items[1]); // -
-    try std.testing.expectEqual(6, results.items[2]); // *
-    try std.testing.expectEqual(1, results.items[3]); // /
-    try std.testing.expectEqual(1, results.items[4]); // %
-    try std.testing.expectEqual(0, results.items[5]); // <
-    try std.testing.expectEqual(0, results.items[6]); // <=
-    try std.testing.expectEqual(1, results.items[7]); // >
-    try std.testing.expectEqual(1, results.items[8]); // >=
-    try std.testing.expectEqual(0, results.items[9]); // ==
-    try std.testing.expectEqual(1, results.items[10]); // !=
-    try std.testing.expectEqual(1, results.items[11]); // &&
-    try std.testing.expectEqual(1, results.items[12]); // !!
+    try std.testing.expectEqual(5, results.items[0].data); // +
+    try std.testing.expectEqual(1, results.items[1].data); // -
+    try std.testing.expectEqual(6, results.items[2].data); // *
+    try std.testing.expectEqual(1, results.items[3].data); // /
+    try std.testing.expectEqual(1, results.items[4].data); // %
+    try std.testing.expectEqual(0, results.items[5].data); // <
+    try std.testing.expectEqual(0, results.items[6].data); // <=
+    try std.testing.expectEqual(1, results.items[7].data); // >
+    try std.testing.expectEqual(1, results.items[8].data); // >=
+    try std.testing.expectEqual(0, results.items[9].data); // ==
+    try std.testing.expectEqual(1, results.items[10].data); // !=
+    try std.testing.expectEqual(1, results.items[11].data); // &&
+    try std.testing.expectEqual(1, results.items[12].data); // !!
 
     // TODO: corner cases
 }
