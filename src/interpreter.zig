@@ -4,17 +4,20 @@ const std = @import("std");
 const bt = @import("bytecode.zig");
 const dt = @import("disbyte.zig");
 const util = @import("util.zig");
+const Object = @import("object.zig").Object;
 
-pub extern var __gc_stack_top: c_ulong;
-pub extern var __gc_stack_bottom: c_ulong;
+pub extern var __gc_stack_top: c_ulong align(16);
+pub extern var __gc_stack_bottom: c_ulong align(16);
+pub extern fn __init() void;
+pub extern fn __gc_init() void;
+pub extern fn __shutdown() void;
 
 const MAX_STACK_SIZE = 1024 * 1024;
 
-// pub extern fn Lread() c_int;
-// pub extern fn Lwrite(c_int) c_int;
 pub extern fn Lstring([*c]i64) ?*anyopaque;
 pub extern fn Bstring([*c]i64) ?*anyopaque;
 pub extern fn Lwrite(c_long) c_long;
+pub extern fn Lread() c_long;
 
 const InterpreterError = error{
     StackUnderflow,
@@ -27,15 +30,18 @@ const InterpreterOpts = struct {
     max_stack_size: usize = 1024 * 1024,
 };
 
+/// Frame metadata for the interpreter.
+/// Because we have only one stack, we keep index
+/// of the frame pointer.
 const FrameMetadata = struct {
-    n_locals: i32,
-    n_args: i32,
+    n_locals: i64,
+    n_args: i64,
     ret_frame_pointer: usize,
     ret_ip: usize,
 };
 
 pub const Interpreter = struct {
-    operand_stack: std.ArrayList(i32),
+    operand_stack: std.ArrayList(Object),
     frame_pointer: usize,
     /// Decoded bytecode file with raw code section
     bf: *dt.Bytefile,
@@ -46,11 +52,11 @@ pub const Interpreter = struct {
     /// Collect found instructions, only when `parse_only` is true
     instructions: std.ArrayList(bt.Instruction),
     /// Global variables
-    globals: std.ArrayList(i32),
+    globals: std.ArrayList(Object),
 
     pub fn new(allocator: *std.mem.Allocator, bf: *dt.Bytefile, opts: InterpreterOpts) !*Interpreter {
         const intr = allocator.create(Interpreter) catch unreachable;
-        var operand_stack = try std.ArrayList(i32).initCapacity(allocator.*, 1024);
+        var operand_stack = try std.ArrayList(Object).initCapacity(allocator.*, MAX_STACK_SIZE);
 
         // ... <- frame points to this index
         // ARGS_COUNT
@@ -65,13 +71,13 @@ pub const Interpreter = struct {
         // LOCAL2
         // ...
         // LOCALN
-        try operand_stack.append(allocator.*, 0); // FRAME_PTR
-        try operand_stack.append(allocator.*, 2); // ARGS_COUNT
-        try operand_stack.append(allocator.*, 0); // LOCALS_COUNT
-        try operand_stack.append(allocator.*, 0); // OLD_FRAME_POINTER
-        try operand_stack.append(allocator.*, 0); // OLD_IP
-        try operand_stack.append(allocator.*, 0); // ARGV
-        try operand_stack.append(allocator.*, 0); // ARGC
+        try operand_stack.append(allocator.*, Object.from_int(0)); // FRAME_PTR
+        try operand_stack.append(allocator.*, Object.from_int(2)); // ARGS_COUNT
+        try operand_stack.append(allocator.*, Object.from_int(0)); // LOCALS_COUNT
+        try operand_stack.append(allocator.*, Object.from_int(0)); // OLD_FRAME_POINTER
+        try operand_stack.append(allocator.*, Object.from_int(0)); // OLD_IP
+        try operand_stack.append(allocator.*, Object.from_int(0)); // ARGV
+        try operand_stack.append(allocator.*, Object.from_int(0)); // ARGC
         // 0 locals
 
         intr.* = Interpreter{
@@ -82,11 +88,14 @@ pub const Interpreter = struct {
             .allocator = allocator,
             .opts = opts,
             .instructions = std.ArrayList(bt.Instruction).empty,
-            .globals = std.ArrayList(i32).empty,
+            .globals = std.ArrayList(Object).empty,
         };
 
-        __gc_stack_bottom = 0;
-        __gc_stack_top = __gc_stack_bottom;
+        // Init GC
+        __init();
+
+        // Sync GC stack pointers
+        intr.sync_gc_stack();
 
         return intr;
     }
@@ -136,18 +145,48 @@ pub const Interpreter = struct {
         return std.mem.readInt(T, bytes[0..@sizeOf(T)], .little);
     }
 
+    fn sync_gc_stack(self: *Interpreter) void {
+        const items = self.operand_stack.items;
+
+        if (items.len == 0) {
+            __gc_stack_bottom = 0;
+            __gc_stack_top = 0;
+            return;
+        }
+
+        // compute bottom as the start of current frame:
+        const frame_idx: usize = @intCast(self.frame_pointer);
+        // clamp frame_idx to valid range
+        const bottom_idx = if (frame_idx <= items.len) frame_idx else items.len;
+
+        const bottom_ptr = items.ptr + bottom_idx;
+
+        // compute top - if empty or frame_idx == items.len then top <= bottom
+        if (items.len == 0 or bottom_idx == items.len) {
+            __gc_stack_bottom = @as(c_ulong, @intFromPtr(bottom_ptr));
+            __gc_stack_top = __gc_stack_bottom; // empty region or no live roots in frame
+        } else {
+            const top_ptr = items.ptr + (items.len - 1);
+            __gc_stack_bottom = @as(c_ulong, @intFromPtr(bottom_ptr));
+            __gc_stack_top = @as(c_ulong, @intFromPtr(top_ptr));
+        }
+    }
+
     /// Pop from the operand stack
-    pub fn pop(self: *Interpreter) !i32 {
+    pub fn pop(self: *Interpreter) !Object {
         // const value = try util.pop_head(&self.operand_stack);
         const value = self.operand_stack.pop() orelse {
             return InterpreterError.StackUnderflow;
         };
-        util.dbgs("POP: {d}\n", .{value});
-        if (self.operand_stack.items.len > 0) {
-            __gc_stack_top = @intCast(@intFromPtr(self.operand_stack.items.ptr + self.operand_stack.items.len - 1));
-        } else {
-            __gc_stack_top = __gc_stack_bottom; // or 0?
-        }
+        util.dbgs("POP: {}\n", .{value});
+        self.sync_gc_stack();
+        // __gc_stack_top = @intCast(@intFromPtr(&self.operand_stack.getLast()));
+        // __gc_stack_top = @intCast(@intFromPtr(__gc_stack_bottom - @as(c_ulong, @sizeOf(i32))));
+        // if (self.operand_stack.items.len > 0) {
+        //     __gc_stack_top = @intCast(@intFromPtr(self.operand_stack.items.ptr + self.operand_stack.items.len - 1));
+        // } else {
+        //     __gc_stack_top = __gc_stack_bottom; // or 0?
+        // }
 
         util.dbgs("----- STACK (POP) ----\n", .{});
         for (0..self.operand_stack.items.len) |i| {
@@ -171,10 +210,12 @@ pub const Interpreter = struct {
     }
 
     /// Push to the operand stack
-    pub fn push(self: *Interpreter, value: i32) !void {
+    pub fn push(self: *Interpreter, value: Object) !void {
         // try util.prepend(&self.operand_stack, self.allocator, value);
         try self.operand_stack.append(self.allocator.*, value);
-        __gc_stack_top = @intCast(@intFromPtr(self.operand_stack.items.ptr + self.operand_stack.items.len - 1));
+        // __gc_stack_top = @intCast(@intFromPtr(__gc_stack_bottom + @as(c_ulong, @sizeOf(i32))));
+        // __gc_stack_top = @intCast(@intFromPtr(&self.operand_stack.getLast()));
+        self.sync_gc_stack();
 
         util.dbgs("----- STACK (PUSH) ----\n", .{});
         for (0..self.operand_stack.items.len) |i| {
@@ -203,10 +244,10 @@ pub const Interpreter = struct {
         const ret_ip = self.operand_stack.items[self.frame_pointer + 4];
 
         return FrameMetadata{
-            .n_locals = n_locals,
-            .n_args = n_args,
-            .ret_frame_pointer = @intCast(ret_frame_pointer),
-            .ret_ip = @intCast(ret_ip),
+            .n_locals = n_locals.data,
+            .n_args = n_args.data,
+            .ret_frame_pointer = @intCast(ret_frame_pointer.data),
+            .ret_ip = @intCast(ret_ip.data),
         };
     }
 
@@ -220,63 +261,60 @@ pub const Interpreter = struct {
                 const right = try self.pop();
                 util.dbgs(" -- binop: {} {} {}\n", .{ left, bop.op, right });
                 const result = switch (bop.op) {
-                    .ADD => left + right,
-                    .SUB => left - right,
-                    .MUL => left * right,
-                    .DIV => @divTrunc(left, right),
-                    .MOD => @rem(left, right),
-                    .LT => @intFromBool(left < right),
-                    .LEQ => @intFromBool(left <= right),
-                    .GT => @intFromBool(left > right),
-                    .GEQ => @intFromBool(left >= right),
-                    .EQ => @intFromBool(left == right),
-                    .NEQ => @intFromBool(left != right),
-                    .AND => @intFromBool((left != 0) and (right != 0)),
-                    .OR => @intFromBool((left != 0) or (right != 0)),
+                    .ADD => left.data + right.data,
+                    .SUB => left.data - right.data,
+                    .MUL => left.data * right.data,
+                    .DIV => @divTrunc(left.data, right.data),
+                    .MOD => @rem(left.data, right.data),
+                    .LT => @intFromBool(left.data < right.data),
+                    .LEQ => @intFromBool(left.data <= right.data),
+                    .GT => @intFromBool(left.data > right.data),
+                    .GEQ => @intFromBool(left.data >= right.data),
+                    .EQ => @intFromBool(left.data == right.data),
+                    .NEQ => @intFromBool(left.data != right.data),
+                    .AND => @intFromBool((left.data != 0) and (right.data != 0)),
+                    .OR => @intFromBool((left.data != 0) or (right.data != 0)),
                 };
                 util.dbgs(" -- result: {}\n", .{result});
-                try self.push(result);
+                try self.push(Object.from_int(result));
             },
             .CONST => |cst| {
-                try self.push(cst.index);
+                try self.push(Object.from_int(cst.index));
             },
             // TODO: test
             .STRING => |str| {
                 const str_at = self.bf.string_table.items[@intCast(str.index)];
-                var c_str: [*c]u8 = @ptrCast(@alignCast(@constCast(str_at.ptr)));
-                c_str[str_at.len] = 0;
-                util.dbgs("   -- string: {s} | {x}\n", .{ str_at, str_at });
-                util.dbgs("   -- c string: {x}\n", .{c_str});
-                // var content: ?*anyopaque = @ptrCast(@alignCast(@constCast(str_at)));
-                // util.dbgs("    -- go to Bstring\n", .{});
-                const c_str_ptr = &c_str;
-                const as_int = @intFromPtr(c_str_ptr);
-                var first_arg: i64 = @intCast(as_int);
-                const ptr: [*c]i64 = @ptrCast(&first_arg);
+                var value = Object.from_string(str_at);
+                const ptr: [*c]i64 = @ptrCast(&value.data);
 
-                util.dbgs("    -- first_arg: {d} | args: {*}, | as_int: {} | c_str_ptr: {*}\n", .{ first_arg, ptr, as_int, c_str_ptr });
+                // util.dbgs("    -- first_arg: {d} | args: {*}, | as_int: {} | c_str_ptr: {*}\n", .{ first_arg, ptr, as_int, c_str_ptr });
                 util.dbgs("    builtinFrame: {} vs gc_top: {} vs gc_bottom: {}\n", .{ @frameAddress(), __gc_stack_top, __gc_stack_bottom });
 
                 const build_str: ?*anyopaque = Bstring(ptr);
                 util.dbgs("    -- s: {}\n", .{build_str.?});
                 const n: c_long = @bitCast(@as(c_ulong, @intFromPtr(build_str.?)));
                 // util.dbgs("    -- n: {}\n", .{n});
-                try self.push(@intCast(n));
+                try self.push(Object.from_int(@intCast(n)));
             },
             .CALL => |call| {
                 if (call.builtin) {
                     switch (call.name.?) {
                         .Lstring => {
                             const top = try self.pop();
-                            const ptr_value: usize = @intCast(top);
+                            const ptr_value: usize = @intCast(top.data);
                             const ptr_to_str = Lstring(@ptrFromInt(ptr_value));
-                            try self.push(@intCast(@intFromPtr(ptr_to_str.?)));
+                            try self.push(Object.from_int(@intCast(@intFromPtr(ptr_to_str.?))));
                         },
                         .Lwrite => {
                             const val = try self.pop();
-                            const as_long: c_long = @intCast(val);
+                            const as_long: c_long = @intCast(val.data);
                             _ = Lwrite(util.BOX(as_long));
                             try self.push(val);
+                        },
+                        .Lread => {
+                            const val = Lread();
+                            var boxed = Object.from_int(@intCast(val));
+                            try self.push(boxed.unbox());
                         },
                         else => unreachable,
                     }
@@ -288,23 +326,28 @@ pub const Interpreter = struct {
                 self.frame_pointer = self.operand_stack.items.len - 1;
 
                 for (0..@intCast(begin.locals)) |_| {
-                    _ = try self.push(0);
+                    _ = try self.push(Object.from_int(0));
                 }
 
                 // Push arg and locals count
-                try self.push(begin.args);
-                try self.push(begin.locals);
+                try self.push(Object.from_int(begin.args));
+                try self.push(Object.from_int(begin.locals));
 
                 // Where to return in sack operands
                 // to after the function call
-                try self.push(@intCast(old_frame_pointer));
+                try self.push(Object.from_int(@intCast(old_frame_pointer)));
 
                 // Where to return in the bytecode after this call
                 util.dbgs("current ip: {d}\n", .{self.ip});
-                try self.push(@intCast(self.ip));
+                try self.push(Object.from_int(@intCast(self.ip)));
 
                 // TODO: begin.arguments handler
                 //       handled by the CALL instruction
+
+                // Synchronize with the garbage collector we replace
+                // bottom as the start of this frames operand stack section
+                // __gc_stack_bottom = @intCast(@intFromPtr(&self.operand_stack.getLast()));
+                self.sync_gc_stack();
 
                 util.dbgs("Calling begin with {d} locals and {d} arguments\n", .{ begin.locals, begin.args });
 
@@ -379,7 +422,7 @@ pub const Interpreter = struct {
                 switch (store.rel) {
                     .G => {
                         try self.globals.append(self.allocator.*, self.operand_stack.getLast());
-                        util.dbgs("Stored global {d} with value {d}: {d}\n", .{ store.index, self.operand_stack.items[0], self.globals.items[@intCast(store.index)] });
+                        util.dbgs("Stored global {d} with value {}: {}\n", .{ store.index, self.operand_stack.items[0], self.globals.items[@intCast(store.index)] });
                     },
                     else => unreachable,
                 }
