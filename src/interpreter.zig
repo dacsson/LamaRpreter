@@ -121,14 +121,17 @@ pub const Interpreter = struct {
             if (instr == null) {
                 util.dbgs("Instruction: NOP\n", .{});
             } else {
+                if (self.opts.parse_only) {
+                    self.instructions.append(self.allocator.*, instr.?) catch unreachable;
+                } else {
+                    // When constructed we can now evaluate the instruction
+                    try self.eval(instr.?);
+                }
+
                 // HACK: if we encounter END instruction, while in frame 0
                 //       (a.k.a main function) we exit the interpreter
                 if (instr.? == .END and self.frame_pointer == 0) {
                     break;
-                }
-
-                if (self.opts.parse_only) {
-                    self.instructions.append(self.allocator.*, instr.?) catch unreachable;
                 }
             }
         }
@@ -612,11 +615,6 @@ pub const Interpreter = struct {
             },
             else => return InterpreterError.InvalidOpcode,
         };
-
-        // When constructed we can now evaluate the instruction
-        if ((!self.opts.parse_only) and (instr != null)) {
-            try self.eval(instr.?);
-        }
 
         return instr;
     }
