@@ -1,10 +1,11 @@
 //! Interpreter for the bytecode instructions.
 
 const std = @import("std");
+
 const bt = @import("bytecode.zig");
 const dt = @import("disbyte.zig");
-const util = @import("util.zig");
 const Object = @import("object.zig").Object;
+const util = @import("util.zig");
 
 pub extern var __gc_stack_top: c_ulong align(16);
 pub extern var __gc_stack_bottom: c_ulong align(16);
@@ -71,6 +72,8 @@ pub const Interpreter = struct {
         // LOCAL2
         // ...
         // LOCALN
+
+        // Emulating call to main
         try operand_stack.append(allocator.*, Object.from_int(0)); // FRAME_PTR
         try operand_stack.append(allocator.*, Object.from_int(2)); // ARGS_COUNT
         try operand_stack.append(allocator.*, Object.from_int(0)); // LOCALS_COUNT
@@ -78,6 +81,7 @@ pub const Interpreter = struct {
         try operand_stack.append(allocator.*, Object.from_int(0)); // OLD_IP
         try operand_stack.append(allocator.*, Object.from_int(0)); // ARGV
         try operand_stack.append(allocator.*, Object.from_int(0)); // ARGC
+        try operand_stack.append(allocator.*, Object.from_int(0)); // CURR_IP
         // 0 locals
 
         intr.* = Interpreter{
@@ -117,7 +121,11 @@ pub const Interpreter = struct {
             if (instr == null) {
                 util.dbgs("Instruction: NOP\n", .{});
             } else {
-                // util.dbgs("Instruction: {}\n", .{instr.?});
+                // HACK: if we encounter END instruction, while in frame 0
+                //       (a.k.a main function) we exit the interpreter
+                if (instr.? == .END and self.frame_pointer == 0) {
+                    break;
+                }
 
                 if (self.opts.parse_only) {
                     self.instructions.append(self.allocator.*, instr.?) catch unreachable;
@@ -145,6 +153,9 @@ pub const Interpreter = struct {
         return std.mem.readInt(T, bytes[0..@sizeOf(T)], .little);
     }
 
+    // TODO: fails at this line in runtime.c:19 gc check:
+    //       `assert(__builtin_frame_address(0) <= (void *)__gc_stack_top)`
+    //       commented out this in runtime for now
     fn sync_gc_stack(self: *Interpreter) void {
         const items = self.operand_stack.items;
 
@@ -251,6 +262,25 @@ pub const Interpreter = struct {
         };
     }
 
+    /// Get the argument at the given index in the current frame.
+    fn get_argument(self: *Interpreter, index: usize) ?Object {
+        const metadata = try self.get_frame_metadata();
+        if (metadata.n_args == 0) return null;
+
+        const arg = self.operand_stack.items[self.frame_pointer + 5 + index];
+        return arg;
+    }
+
+    /// Get the local variable at the given index in the current frame.
+    fn get_local(self: *Interpreter, index: usize) ?Object {
+        const metadata = try self.get_frame_metadata();
+        if (metadata.n_locals == 0) return null;
+
+        const n_args: usize = @intCast(metadata.n_args);
+        const local = self.operand_stack.items[self.frame_pointer + 5 + n_args + index];
+        return local;
+    }
+
     /// Evaluate a decoded instruction
     pub fn eval(self: *Interpreter, instr: bt.Instruction) !void {
         util.dbgs(" -- eval: {}\n", .{instr});
@@ -318,16 +348,45 @@ pub const Interpreter = struct {
                         },
                         else => unreachable,
                     }
+                } else {
+                    // Push old instruction pointer
+                    // `begin` instruction will collect it
+                    try self.push(Object.from_int(@intCast(self.ip)));
+
+                    // Set new ip
+                    const offset = call.offset orelse {
+                        @panic("Not-builtin call without offset specified\n");
+                    };
+                    self.ip = @intCast(offset);
+
+                    util.dbgs("ip at {d} {}", .{ self.ip, self.bf.code_section[self.ip] });
+
+                    // // Take number of arguments
+                    // const n_args = call.n orelse {
+                    //     @panic("Not-builtin call without number of arguments specified\n");
+                    // };
+
+                    // // Push n_args (begin will rearrange them)
+                    // try self.push(Object.from_int(n_args));
                 }
             },
             .BEGIN => |begin| {
-                const old_frame_pointer = self.frame_pointer;
-                // Set frame pointer as index into OS
-                self.frame_pointer = self.operand_stack.items.len - 1;
+                // // Take number of arguments pushed by `call`
+                // const n_args = try self.pop();
+                const old_ip = try self.pop();
 
-                for (0..@intCast(begin.locals)) |_| {
-                    _ = try self.push(Object.from_int(0));
+                // Collect arguments from previous frame
+                var arguments = std.ArrayList(Object).empty;
+                defer arguments.deinit(self.allocator.*);
+
+                for (0..@intCast(begin.args)) |_| {
+                    const arg = try self.pop();
+                    try arguments.append(self.allocator.*, arg);
                 }
+
+                const old_frame_pointer = self.frame_pointer;
+                // Set new frame pointer as index into OS
+                self.frame_pointer = self.operand_stack.items.len - 1;
 
                 // Push arg and locals count
                 try self.push(Object.from_int(begin.args));
@@ -338,8 +397,18 @@ pub const Interpreter = struct {
                 try self.push(Object.from_int(@intCast(old_frame_pointer)));
 
                 // Where to return in the bytecode after this call
-                util.dbgs("current ip: {d}\n", .{self.ip});
-                try self.push(Object.from_int(@intCast(self.ip)));
+                // util.dbgs("current ip: {d}\n", .{self.ip});
+                try self.push(old_ip);
+
+                // Push arguments
+                for (0..@intCast(begin.args)) |_| {
+                    _ = try self.push(arguments.pop().?);
+                }
+
+                // Initialize locals with 0
+                for (0..@intCast(begin.locals)) |_| {
+                    _ = try self.push(Object.from_int(0));
+                }
 
                 // TODO: begin.arguments handler
                 //       handled by the CALL instruction
@@ -435,6 +504,18 @@ pub const Interpreter = struct {
                     .G => {
                         try self.push(self.globals.items[@intCast(load.index)]);
                     },
+                    .L => {
+                        const local = self.get_local(@intCast(load.index)) orelse {
+                            @panic("Local variable at not found in frame");
+                        };
+                        try self.push(local);
+                    },
+                    .A => {
+                        const arg = self.get_argument(@intCast(load.index)) orelse {
+                            @panic("Argument at not found in frame");
+                        };
+                        try self.push(arg);
+                    },
                     else => unreachable,
                 }
             },
@@ -483,6 +564,12 @@ pub const Interpreter = struct {
                 } },
                 0xa => bt.Instruction{ .LINE = .{
                     .n = try self.next(i32),
+                } },
+                0x6 => bt.Instruction{ .CALL = .{
+                    .builtin = false,
+                    .offset = try self.next(i32),
+                    .n = try self.next(i32),
+                    .name = null,
                 } },
                 else => return InterpreterError.InvalidOpcode,
             },
