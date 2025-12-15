@@ -158,16 +158,16 @@ test "evaluate_binary_op" {
     for (0..13) |op_index| {
         // clear previous results
         interpreter.operand_stack.clearAndFree(allocator);
-        // 2 at top of stack
-        const push_const2 = LamaRpreter.Instruction{ .CONST = .{
-            .index = 2,
-        } };
-        try interpreter.eval(push_const2);
         // 3 at top of stack
         const push_const1 = LamaRpreter.Instruction{ .CONST = .{
             .index = 3,
         } };
+        // 2 at top of stack
+        const push_const2 = LamaRpreter.Instruction{ .CONST = .{
+            .index = 2,
+        } };
         try interpreter.eval(push_const1);
+        try interpreter.eval(push_const2);
         // 3 `op` 2
         const bin_op = LamaRpreter.Instruction{ .BINOP = .{
             .op = @enumFromInt(op_index),
