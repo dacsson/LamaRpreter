@@ -194,7 +194,7 @@ test "evaluate_binary_op" {
     // TODO: corner cases
 }
 
-// Fails with `ERROR: compact_phase: munmap failed`
+// Fails with some gc error still
 // nedto somehow workaround gc phases?
 // test "evaluate_string_op" {
 //     std.testing.refAllDecls(@This());
@@ -248,7 +248,7 @@ test "evaluate_binary_op" {
 //     try interpreter.eval(load_string);
 
 //     const res = try interpreter.pop();
-//     const ptr_value: usize = @intCast(res);
+//     const ptr_value: usize = @intCast(res.data);
 //     const ptr: *const []const u8 = @ptrFromInt(ptr_value);
 //     const str = ptr.*;
 //     // try results.append(allocator, res);
