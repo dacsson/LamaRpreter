@@ -9,6 +9,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .link_libc = true,
     });
+    mod.addIncludePath(b.path("runtime/"));
 
     const exe = b.addExecutable(.{
         .name = "LamaRpreter",
@@ -21,6 +22,7 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
+    exe.root_module.addIncludePath(b.path("runtime/"));
     exe.root_module.addObjectFile(b.path("runtime/libruntime.a"));
     b.installArtifact(exe);
 

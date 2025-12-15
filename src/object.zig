@@ -25,8 +25,18 @@ pub const Object = struct {
         return Object{ .data = first_arg };
     }
 
+    pub fn from_ptr(ptr: *anyopaque) Object {
+        const as_int = @intFromPtr(ptr);
+        const as_long: i64 = @intCast(as_int);
+        return Object{ .data = as_long };
+    }
+
     pub fn unbox(self: *Object) Object {
         return Object.from_int(UNBOX(self.data));
+    }
+
+    pub fn box(self: *Object) Object {
+        return Object.from_int((self.data << 1) | 1);
     }
 
     pub fn UNBOXED(x: anytype) @TypeOf(__helpers.cast(c_long, x) & @as(c_int, 1)) {

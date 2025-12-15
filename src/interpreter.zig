@@ -6,6 +6,12 @@ const bt = @import("bytecode.zig");
 const dt = @import("disbyte.zig");
 const Object = @import("object.zig").Object;
 const util = @import("util.zig");
+const rcommon = @cImport({
+    @cInclude("runtime_common.h");
+});
+const gc = @cImport({
+    @cInclude("gc.h");
+});
 
 pub extern var __gc_stack_top: c_ulong align(16);
 pub extern var __gc_stack_bottom: c_ulong align(16);
@@ -19,6 +25,7 @@ pub extern fn Lstring([*c]i64) ?*anyopaque;
 pub extern fn Bstring([*c]i64) ?*anyopaque;
 pub extern fn Lwrite(c_long) c_long;
 pub extern fn Lread() c_long;
+pub extern fn Llength(c_long) c_long;
 
 const InterpreterError = error{
     StackUnderflow,
@@ -317,17 +324,38 @@ pub const Interpreter = struct {
             // TODO: test
             .STRING => |str| {
                 const str_at = self.bf.string_table.items[@intCast(str.index)];
-                var value = Object.from_string(str_at);
-                const ptr: [*c]i64 = @ptrCast(&value.data);
+                // var value = Object.from_string(str_at);
+                // const ptr: [*c]i64 = @ptrCast(&value.data);
 
-                // util.dbgs("    -- first_arg: {d} | args: {*}, | as_int: {} | c_str_ptr: {*}\n", .{ first_arg, ptr, as_int, c_str_ptr });
-                util.dbgs("    builtinFrame: {} vs gc_top: {} vs gc_bottom: {}\n", .{ @frameAddress(), __gc_stack_top, __gc_stack_bottom });
+                // // util.dbgs("    -- first_arg: {d} | args: {*}, | as_int: {} | c_str_ptr: {*}\n", .{ first_arg, ptr, as_int, c_str_ptr });
+                // util.dbgs("    builtinFrame: {} vs gc_top: {} vs gc_bottom: {}\n", .{ @frameAddress(), __gc_stack_top, __gc_stack_bottom });
 
-                const build_str: ?*anyopaque = Bstring(ptr);
-                util.dbgs("    -- s: {}\n", .{build_str.?});
-                const n: c_long = @bitCast(@as(c_ulong, @intFromPtr(build_str.?)));
-                // util.dbgs("    -- n: {}\n", .{n});
-                try self.push(Object.from_int(@intCast(n)));
+                // const build_str: ?*anyopaque = Bstring(ptr);
+                // util.dbgs("    -- s: {}\n", .{build_str.?});
+                // const n: c_long = @bitCast(@as(c_ulong, @intFromPtr(build_str.?)));
+                // // util.dbgs("    -- n: {}\n", .{n});
+                // const top: c_long = @intCast(@intFromPtr(str_at.ptr));
+
+                // // util.dbgs("Boxing value {d} -> {d} {d}\n", .{ top.data, top.BOX(), rcommon.BOX(top.data) });
+                // var boxed = Object.from_int(top);
+                // util.dbgs("Boxing value: {d} -> {d} | {d}\n", .{ top, boxed.box().data, rcommon.BOX(@intFromPtr(str_at.ptr)) });
+                // if (rcommon.UNBOXED(rcommon.BOX(@intFromPtr(str_at.ptr))) == 1) {
+                //     @panic("Unboxed value");
+                // }
+                // try self.push(boxed.box());
+                const alloc_str = gc.alloc_string(str_at.len);
+                const content_ptr = gc.get_object_content_ptr(alloc_str).?;
+
+                const to_data = util.TO_DATA(content_ptr);
+                const contents: [*c]u8 = util.contents(to_data);
+
+                @memcpy(contents, str_at);
+
+                contents[str_at.len] = 0;
+
+                util.dbgs("Content string is: {s}\n", .{contents});
+
+                try self.push(Object.from_ptr(contents));
             },
             .CALL => |call| {
                 if (call.builtin) {
@@ -347,6 +375,15 @@ pub const Interpreter = struct {
                         .Lread => {
                             const val = Lread();
                             var boxed = Object.from_int(@intCast(val));
+                            try self.push(boxed.unbox());
+                        },
+                        .Llength => {
+                            const val = try self.pop();
+                            // const as_long: c_long = @intCast(val.data);
+                            const len = Llength(val.data);
+                            // const as_str = @ptrFromInt(val);
+                            // util.dbgs("Content: {s}", )
+                            var boxed = Object.from_int(len);
                             try self.push(boxed.unbox());
                         },
                         else => unreachable,
