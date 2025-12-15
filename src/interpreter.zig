@@ -31,6 +31,8 @@ const InterpreterError = error{
     StackUnderflow,
     EndOfCodeSection,
     InvalidOpcode,
+    InvalidType,
+    OutOfBoundsAccess,
 };
 
 const InterpreterOpts = struct {
@@ -281,6 +283,13 @@ pub const Interpreter = struct {
         return arg;
     }
 
+    fn set_argument(self: *Interpreter, index: usize, value: Object) !void {
+        const metadata = try self.get_frame_metadata();
+        if (metadata.n_args == 0) return;
+
+        self.operand_stack.items[self.frame_pointer + 5 + index] = value;
+    }
+
     /// Get the local variable at the given index in the current frame.
     fn get_local(self: *Interpreter, index: usize) ?Object {
         const metadata = try self.get_frame_metadata();
@@ -291,14 +300,24 @@ pub const Interpreter = struct {
         return local;
     }
 
+    /// Set the local variable at the given index in the current frame.
+    fn set_local(self: *Interpreter, index: usize, value: Object) !void {
+        const metadata = try self.get_frame_metadata();
+        if (metadata.n_locals == 0) return;
+
+        const n_args: usize = @intCast(metadata.n_args);
+        self.operand_stack.items[self.frame_pointer + 5 + n_args + index] = value;
+    }
+
     /// Evaluate a decoded instruction
     pub fn eval(self: *Interpreter, instr: bt.Instruction) !void {
         util.dbgs(" -- eval: {}\n", .{instr});
         switch (instr) {
             .NOP => {},
             .BINOP => |bop| {
-                const left = try self.pop();
+                // PRESEDENCE!!!
                 const right = try self.pop();
+                const left = try self.pop();
                 util.dbgs(" -- binop: {} {} {}\n", .{ left, bop.op, right });
                 const result = switch (bop.op) {
                     .ADD => left.data + right.data,
@@ -530,11 +549,46 @@ pub const Interpreter = struct {
             .STORE => |store| {
                 switch (store.rel) {
                     .G => {
-                        try self.globals.append(self.allocator.*, self.operand_stack.getLast());
+                        if (store.index < 0) {
+                            return InterpreterError.OutOfBoundsAccess;
+                        }
+
+                        if (store.index >= self.globals.items.len) {
+                            try self.globals.append(self.allocator.*, self.operand_stack.getLast());
+                        } else {
+                            self.globals.items[@intCast(store.index)] = self.operand_stack.getLast();
+                        }
+
                         util.dbgs("Stored global {d} with value {}: {}\n", .{ store.index, self.operand_stack.items[0], self.globals.items[@intCast(store.index)] });
+                    },
+                    .L => {
+                        try self.set_local(@intCast(store.index), self.operand_stack.getLast());
+                        // util.dbgs("Stored local {d} with value {}: {}\n", .{ store.index, self.operand_stack.items[0], self.locals.items[@intCast(store.index)] });
+                    },
+                    .A => {
+                        try self.set_argument(@intCast(store.index), self.operand_stack.getLast());
+                        // util.dbgs("Stored argument {d} with value {}: {}\n", .{ store.index, self.operand_stack.items[0], self.locals.items[@intCast(store.index)] });
                     },
                     else => unreachable,
                 }
+            },
+            .STI => {
+                @panic("Not implemented");
+            },
+            .STA => {
+                var value = try self.pop();
+                const index = try self.pop();
+                var aggregate = try self.pop();
+
+                if (!aggregate.is_aggregate()) {
+                    @panic("Aggregate expected");
+                }
+
+                const index_value: usize = @intCast(index.data);
+
+                try aggregate.set_at(index_value, &value);
+
+                try self.push(aggregate);
             },
             .DROP => {
                 _ = try self.pop();
@@ -561,6 +615,33 @@ pub const Interpreter = struct {
             },
             .LINE => |line| {
                 util.dbgs("Line: {}\n", .{line.n});
+            },
+            .JMP => |jmp| {
+                self.ip = @intCast(jmp.offset);
+                // or?
+                // self.ip = self.bf.code_section[@intCast(jmp.offset)];
+            },
+            .CJMP => |jmp| {
+                // Condition value
+                const value = try self.pop();
+                switch (jmp.kind) {
+                    .ISZERO => {
+                        if (value.data == 0) self.ip = @intCast(jmp.offset);
+                    },
+                    .ISNONZERO => {
+                        if (value.data != 0) self.ip = @intCast(jmp.offset);
+                    },
+                }
+            },
+            .ELEM => {
+                const index = try self.pop();
+                var aggregate = try self.pop();
+
+                const index_value: usize = @intCast(index.data);
+
+                // NOTE: verifying is moved to Object method
+                const elem = try aggregate.get_at(index_value);
+                try self.push(elem);
             },
             // else => unreachable,
         }
@@ -589,8 +670,14 @@ pub const Interpreter = struct {
                 0x1 => bt.Instruction{ .STRING = .{
                     .index = try self.next(i32),
                 } },
+                0x3 => bt.Instruction.STI,
+                0x4 => bt.Instruction.STA,
+                0x5 => bt.Instruction{ .JMP = .{
+                    .offset = try self.next(i32),
+                } },
                 0x6 => bt.Instruction.END,
                 0x8 => bt.Instruction.DROP,
+                0xb => bt.Instruction.ELEM,
                 else => return InterpreterError.InvalidOpcode,
             },
             0x20 => bt.Instruction{ .LOAD = .{
@@ -598,7 +685,15 @@ pub const Interpreter = struct {
                 .rel = @enumFromInt(subopcode),
             } },
             0x50 => switch (subopcode) {
-                2 => bt.Instruction{ .BEGIN = .{
+                0x0 => bt.Instruction{ .CJMP = .{
+                    .offset = try self.next(i32),
+                    .kind = .ISZERO,
+                } },
+                0x1 => bt.Instruction{ .CJMP = .{
+                    .offset = try self.next(i32),
+                    .kind = .ISNONZERO,
+                } },
+                0x2 => bt.Instruction{ .BEGIN = .{
                     .args = try self.next(i32),
                     .locals = try self.next(i32),
                 } },
@@ -648,7 +743,10 @@ pub const Interpreter = struct {
                     .n = try self.next(i32),
                     .name = .Barray,
                 } },
-                else => return InterpreterError.InvalidOpcode,
+                else => {
+                    std.log.err("0x{X}\n", .{opcode});
+                    return InterpreterError.InvalidOpcode;
+                },
             },
             else => return InterpreterError.InvalidOpcode,
         };

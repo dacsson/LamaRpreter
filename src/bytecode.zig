@@ -25,6 +25,11 @@ pub const ValueRel = enum {
     C, // Captured by closure
 };
 
+pub const CompareJumpKind = enum {
+    ISZERO, // jump if operand is zero
+    ISNONZERO, // jump if operand is non-zero
+};
+
 /// Built-in functions
 pub const Builtin = enum {
     Lread,
@@ -97,4 +102,23 @@ pub const Instruction = union(enum) {
     },
     /// Removes the top value from the stack.
     DROP,
+    /// Jumps to the given offset
+    JMP: struct {
+        offset: i32,
+    },
+    /// Set instruction pointer to offset if operand is zero/non-zero
+    CJMP: struct {
+        offset: i32,
+        kind: CompareJumpKind,
+    },
+    /// Look up an element of some array/string/sexp
+    /// NOTE: takes an operand and index from top of stack
+    ELEM,
+    /// Indirect store to variable
+    /// Pop the reference to the variable and the value to store
+    STI,
+    /// Indirect store to a variable or an agregate
+    /// If we store to a variable -> equivalent to STI
+    /// Otherwise -> pop agregate, pop index, pop operand (result) that we assign to
+    STA,
 };

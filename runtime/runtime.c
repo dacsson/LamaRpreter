@@ -214,6 +214,7 @@ aint Ls__Infix_37(void *p, void *q) {
 
 extern aint Llength(void *p) {
   ASSERT_BOXED(".length", p);
+  printf("Llength: %s\n", TO_DATA(p)->contents);
   return BOX(LEN(TO_DATA(p)->data_header));
 }
 
