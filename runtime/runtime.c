@@ -893,6 +893,8 @@ extern void *Barray(aint *args, aint bn) {
   data *r;
   aint n = UNBOX(bn);
 
+  printf("Barray called with %ld elements\n", n);
+
   PRE_GC();
 
   for (aint i = 0; i < n; i++) {

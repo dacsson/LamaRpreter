@@ -1,0 +1,5 @@
+var x;
+
+x := "abcdefgh";
+
+write (x.length)

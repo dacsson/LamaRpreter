@@ -1,0 +1,18 @@
+var x, i;
+
+fun printArray (a) {
+  var i;
+  for i := 0, i < a.length, i := i + 1 do
+    write (a[i])
+  od
+}
+
+x := [1, 2, 3, 4, 5];
+
+printArray (x);
+
+for i := 0, i < x.length, i := i + 1 do
+        x[i] := x[i] * x[i]
+od;
+
+printArray (x)

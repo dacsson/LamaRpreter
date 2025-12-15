@@ -1,0 +1,9 @@
+var n, x, i;
+
+fun add (a) {
+   a + 1
+}
+
+n := read ();
+
+write (add (n))
