@@ -87,6 +87,11 @@ pub const Object = struct {
                 const content: [*c]u8 = util.contents(as_data);
                 return Object.from_int(@intCast(content[index]));
             },
+            gc.ARRAY => {
+                const content: [*c]i64 = @ptrCast(@alignCast(util.contents(as_data)));
+                const el = content + index;
+                return Object.from_int(el.*);
+            },
             else => @panic("unimplemented!"),
         }
 
@@ -111,6 +116,11 @@ pub const Object = struct {
             gc.STRING => {
                 const content: [*c]u8 = util.contents(as_data);
                 content[index] = @intCast(value.data);
+            },
+            gc.ARRAY => {
+                const content: [*c]i64 = @ptrCast(@alignCast(util.contents(as_data)));
+                const el = content + index;
+                el.* = value.data;
             },
             else => @panic("unimplemented!"),
         }

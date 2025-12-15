@@ -26,6 +26,7 @@ pub extern fn Bstring([*c]i64) ?*anyopaque;
 pub extern fn Lwrite(c_long) c_long;
 pub extern fn Lread() c_long;
 pub extern fn Llength(c_long) c_long;
+pub extern fn Barray([*c]i64, i64) ?*anyopaque;
 
 const InterpreterError = error{
     StackUnderflow,
@@ -405,7 +406,32 @@ pub const Interpreter = struct {
                             var boxed = Object.from_int(len);
                             try self.push(boxed.unbox());
                         },
-                        else => unreachable,
+                        .Barray => {
+                            const len: usize = @intCast(call.n.?);
+
+                            var elements = try std.ArrayList(i64).initCapacity(self.allocator.*, len);
+                            defer elements.deinit(self.allocator.*);
+
+                            for (0..len) |_| {
+                                const element = try self.pop();
+                                try elements.append(self.allocator.*, element.data);
+                            }
+
+                            // Reverse, due to stack precedence
+                            var reversed = try std.ArrayList(i64).initCapacity(self.allocator.*, len);
+                            defer reversed.deinit(self.allocator.*);
+
+                            for (0..len) |_| {
+                                try reversed.append(self.allocator.*, elements.pop().?);
+                            }
+
+                            const len_64: i64 = @intCast(len);
+
+                            const array = Barray(reversed.items.ptr, rcommon.BOX(len_64));
+
+                            try self.push(Object.from_int(@intCast(@intFromPtr(array.?))));
+                        },
+                        // else => unreachable,
                     }
                 } else {
                     // Push old instruction pointer
