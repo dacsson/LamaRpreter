@@ -687,6 +687,18 @@ pub const Interpreter = struct {
                 const elem = try aggregate.get_at(index_value);
                 try self.push(elem);
             },
+            .SEXP => |sexp| {
+                const s_index = sexp.s_index;
+                const n_members = sexp.n_members;
+
+                const tag = self.bf.string_table.items[@intCast(s_index)];
+                const alloc = gc.alloc_sexp(@intCast(n_members));
+                const content = gc.get_object_content_ptr(alloc).?;
+                const s_exp = gc.TO_SEXP(content);
+                s_exp.*.tag = @intCast(@intFromPtr(tag));
+
+                try self.push(Object.from_ptr(content));
+            },
             // else => unreachable,
         }
     }
@@ -713,6 +725,10 @@ pub const Interpreter = struct {
                 } },
                 0x1 => bt.Instruction{ .STRING = .{
                     .index = try self.next(i32),
+                } },
+                0x2 => bt.Instruction{ .SEXP = .{
+                    .s_index = try self.next(i32),
+                    .n_members = try self.next(i32),
                 } },
                 0x3 => bt.Instruction.STI,
                 0x4 => bt.Instruction.STA,
