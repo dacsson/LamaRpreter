@@ -10,6 +10,7 @@ const BytefileError = error{
     MemoryAllocationFailed,
     UnexpectedEOF,
     NoCodeSection,
+    InvalidStringIndexInStringTable,
 };
 
 // Memory layout of the bytecode file
@@ -38,15 +39,12 @@ pub const Bytefile = struct {
     global_area_size: u32,
     public_symbols_number: u32,
     public_symbols: std.ArrayList(struct { u32, u32 }),
-    string_table: std.ArrayList([]const u8),
+    string_table: std.ArrayList(u8),
     code_section: []u8, // Kept raw for later interpretation
 
     pub fn free(self: *Bytefile, allocator: *std.mem.Allocator) void {
         allocator.free(self.code_section);
         self.public_symbols.deinit(allocator.*);
-        for (self.string_table.items) |item| {
-            allocator.free(item);
-        }
         self.string_table.deinit(allocator.*);
         allocator.destroy(self);
     }
@@ -91,14 +89,18 @@ pub const Bytefile = struct {
         }
 
         // String table
-        var string_table = std.ArrayList([]const u8).empty;
+        var string_table = std.ArrayList(u8).empty;
         var bytes_read: usize = 0;
         while (bytes_read < stringtab_size) {
             const string = try reader.interface.takeDelimiter(0);
             if (string == null) return BytefileError.UnexpectedEOF;
 
             const owned_string = try allocator.dupe(u8, @constCast(string.?));
-            try string_table.append(allocator.*, owned_string);
+            try string_table.appendSlice(allocator.*, owned_string);
+
+            // Null terminator
+            try string_table.append(allocator.*, 0);
+
             bytes_read += if (string.?.len > 0) string.?.len + 1 else 0;
         }
 
@@ -131,6 +133,21 @@ pub const Bytefile = struct {
         return bf;
     }
 
+    pub fn get_string_at(self: *Bytefile, index: usize) ![]const u8 {
+        std.debug.assert(index < self.string_table.items.len and index >= 0);
+
+        for (index..self.string_table.items.len) |i| {
+            if (self.string_table.items[i] == 0) {
+                const string = self.string_table.items[index..i];
+                return string;
+            }
+        }
+
+        util.dbgs(" -- string index: {} | string_tab size: {}\n", .{ index, self.string_table.items.len });
+        @panic("Invalid string index in string table");
+        // return BytefileError.InvalidStringIndexInStringTable;
+    }
+
     pub fn dump(self: *Bytefile) !void {
         util.dbgs("--------- Bytefile Dump ----------\n", .{});
         util.dbgs("  String Table Size: {d}\n", .{self.stringtab_size});
@@ -144,9 +161,7 @@ pub const Bytefile = struct {
         }
 
         util.dbgs("  String Table:\n", .{});
-        for (self.string_table.items) |string| {
-            util.dbgs("    String: {s} | {x}\n", .{ string, string });
-        }
+        util.dbgs("    String: {s}\n", .{self.string_table.items});
 
         util.dbgs("  Code:\n", .{});
         for (self.code_section) |instruction| {

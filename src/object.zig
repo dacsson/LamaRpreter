@@ -168,8 +168,6 @@ pub const Object = struct {
                 util.dbgs("array to_string len {d}\n", .{len});
 
                 for (0..len) |index| {
-                    // const el = content + index;
-                    // util.dbgs("array to_string el {d}\n", .{el.*});
                     var obj_el = Object.from_int(slice[index]);
                     util.dbgs("array to_string el {d}\n", .{slice[index]});
                     const to_str = try obj_el.to_string(allocator);
@@ -179,6 +177,30 @@ pub const Object = struct {
                     }
                 }
                 try str.appendSlice(allocator, "]");
+
+                return str.toOwnedSlice(allocator);
+            },
+            gc.SEXP => {
+                const content: [*c]i64 = @ptrCast(@alignCast(util.contents(as_data)));
+
+                const slice = content[0..len];
+                util.dbgs("sexp to_string slice {any}\n", .{slice});
+
+                try str.appendSlice(allocator, "(");
+
+                util.dbgs("array to_string len {d}\n", .{len});
+
+                for (0..len) |index| {
+                    const slice_index: usize = @intCast(slice[index]);
+                    var obj_el = Object.from_ptr(@ptrFromInt(slice_index));
+                    util.dbgs("array to_string el {d}\n", .{slice[index]});
+                    const to_str = try obj_el.to_string(allocator);
+                    try str.appendSlice(allocator, to_str);
+                    if (index != len - 1) {
+                        try str.appendSlice(allocator, ", ");
+                    }
+                }
+                try str.appendSlice(allocator, ")");
 
                 return str.toOwnedSlice(allocator);
             },
