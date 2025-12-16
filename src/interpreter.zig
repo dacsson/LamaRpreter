@@ -381,10 +381,28 @@ pub const Interpreter = struct {
                 if (call.builtin) {
                     switch (call.name.?) {
                         .Lstring => {
-                            const top = try self.pop();
-                            const ptr_value: usize = @intCast(top.data);
-                            const ptr_to_str = Lstring(@ptrFromInt(ptr_value));
-                            try self.push(Object.from_int(@intCast(@intFromPtr(ptr_to_str.?))));
+                            var top = try self.pop();
+
+                            var as_str = try top.to_string(self.allocator.*);
+
+                            const alloc_str = gc.alloc_string(as_str.len);
+                            const content_ptr = gc.get_object_content_ptr(alloc_str).?;
+
+                            const to_data = util.TO_DATA(content_ptr);
+                            const contents: [*c]u8 = util.contents(to_data);
+
+                            @memcpy(contents, as_str);
+
+                            try self.push(Object.from_ptr(contents));
+                            // if (top.is_aggregate()) {
+                            //     const ptr_value: usize = @intCast(top.data);
+                            //     const ptr_to_str = Lstring(@ptrFromInt(ptr_value));
+                            //     try self.push(Object.from_int(@intCast(@intFromPtr(ptr_to_str.?))));
+                            // } else {
+                            //     const one_array: [*c]i64 = @ptrCast(&top.data);
+                            //     const ptr_to_str = Lstring(one_array);
+                            //     try self.push(Object.from_int(@intCast(@intFromPtr(ptr_to_str.?))));
+                            // }
                         },
                         .Lwrite => {
                             const val = try self.pop();
@@ -394,7 +412,7 @@ pub const Interpreter = struct {
                         },
                         .Lread => {
                             const val = Lread();
-                            var boxed = Object.from_int(@intCast(val));
+                            var boxed = Object.from_int(val);
                             try self.push(boxed.unbox());
                         },
                         .Llength => {
@@ -427,9 +445,9 @@ pub const Interpreter = struct {
 
                             const len_64: i64 = @intCast(len);
 
-                            const array = Barray(reversed.items.ptr, rcommon.BOX(len_64));
+                            const array = Barray(reversed.items.ptr, rcommon.BOX(len_64)).?;
 
-                            try self.push(Object.from_int(@intCast(@intFromPtr(array.?))));
+                            try self.push(Object.from_ptr(array));
                         },
                         // else => unreachable,
                     }
