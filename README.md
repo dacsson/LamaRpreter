@@ -1,3 +1,6 @@
+> [!WARNING]
+> Deprecated in favour of fully featured and **BLAZINGLY FAST** [rust version](https://github.com/dacsson/lamarik)
+
 # What's this?
 
 This is a [Lama](https://github.com/PLTools/Lama) bytecode interpreter for Virtual Machines course.
