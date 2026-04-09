@@ -121,4 +121,10 @@ pub const Instruction = union(enum) {
     /// If we store to a variable -> equivalent to STI
     /// Otherwise -> pop agregate, pop index, pop operand (result) that we assign to
     STA,
+    /// Construct a sexp from, where s_index is the index of
+    /// string in string table, used as tag
+    SEXP: struct {
+        s_index: i32,
+        n_members: i32,
+    },
 };

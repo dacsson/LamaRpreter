@@ -26,6 +26,8 @@ pub extern fn Bstring([*c]i64) ?*anyopaque;
 pub extern fn Lwrite(c_long) c_long;
 pub extern fn Lread() c_long;
 pub extern fn Llength(c_long) c_long;
+pub extern fn Barray([*c]i64, i64) ?*anyopaque;
+pub extern fn Bsexp([*c]i64, i64) ?*anyopaque;
 
 const InterpreterError = error{
     StackUnderflow,
@@ -342,7 +344,8 @@ pub const Interpreter = struct {
             },
             // TODO: test
             .STRING => |str| {
-                const str_at = self.bf.string_table.items[@intCast(str.index)];
+                util.dbgs(" -- string index: {}\n", .{str.index});
+                const str_at = try self.bf.get_string_at(@intCast(str.index));
                 // var value = Object.from_string(str_at);
                 // const ptr: [*c]i64 = @ptrCast(&value.data);
 
@@ -380,10 +383,28 @@ pub const Interpreter = struct {
                 if (call.builtin) {
                     switch (call.name.?) {
                         .Lstring => {
-                            const top = try self.pop();
-                            const ptr_value: usize = @intCast(top.data);
-                            const ptr_to_str = Lstring(@ptrFromInt(ptr_value));
-                            try self.push(Object.from_int(@intCast(@intFromPtr(ptr_to_str.?))));
+                            var top = try self.pop();
+
+                            var as_str = try top.to_string(self.allocator.*);
+
+                            const alloc_str = gc.alloc_string(as_str.len);
+                            const content_ptr = gc.get_object_content_ptr(alloc_str).?;
+
+                            const to_data = util.TO_DATA(content_ptr);
+                            const contents: [*c]u8 = util.contents(to_data);
+
+                            @memcpy(contents, as_str);
+
+                            try self.push(Object.from_ptr(contents));
+                            // if (top.is_aggregate()) {
+                            //     const ptr_value: usize = @intCast(top.data);
+                            //     const ptr_to_str = Lstring(@ptrFromInt(ptr_value));
+                            //     try self.push(Object.from_int(@intCast(@intFromPtr(ptr_to_str.?))));
+                            // } else {
+                            //     const one_array: [*c]i64 = @ptrCast(&top.data);
+                            //     const ptr_to_str = Lstring(one_array);
+                            //     try self.push(Object.from_int(@intCast(@intFromPtr(ptr_to_str.?))));
+                            // }
                         },
                         .Lwrite => {
                             const val = try self.pop();
@@ -393,7 +414,7 @@ pub const Interpreter = struct {
                         },
                         .Lread => {
                             const val = Lread();
-                            var boxed = Object.from_int(@intCast(val));
+                            var boxed = Object.from_int(val);
                             try self.push(boxed.unbox());
                         },
                         .Llength => {
@@ -405,7 +426,32 @@ pub const Interpreter = struct {
                             var boxed = Object.from_int(len);
                             try self.push(boxed.unbox());
                         },
-                        else => unreachable,
+                        .Barray => {
+                            const len: usize = @intCast(call.n.?);
+
+                            var elements = try std.ArrayList(i64).initCapacity(self.allocator.*, len);
+                            defer elements.deinit(self.allocator.*);
+
+                            for (0..len) |_| {
+                                const element = try self.pop();
+                                try elements.append(self.allocator.*, element.data);
+                            }
+
+                            // Reverse, due to stack precedence
+                            var reversed = try std.ArrayList(i64).initCapacity(self.allocator.*, len);
+                            defer reversed.deinit(self.allocator.*);
+
+                            for (0..len) |_| {
+                                try reversed.append(self.allocator.*, elements.pop().?);
+                            }
+
+                            const len_64: i64 = @intCast(len);
+
+                            const array = Barray(reversed.items.ptr, rcommon.BOX(len_64)).?;
+
+                            try self.push(Object.from_ptr(array));
+                        },
+                        // else => unreachable,
                     }
                 } else {
                     // Push old instruction pointer
@@ -643,6 +689,65 @@ pub const Interpreter = struct {
                 const elem = try aggregate.get_at(index_value);
                 try self.push(elem);
             },
+            .SEXP => |sexp| {
+                const tag = try self.bf.get_string_at(@intCast(sexp.s_index));
+
+                const len: usize = @intCast(sexp.n_members);
+
+                var elements = try std.ArrayList(i64).initCapacity(self.allocator.*, len);
+                defer elements.deinit(self.allocator.*);
+
+                for (0..len) |_| {
+                    const element = try self.pop();
+                    try elements.append(self.allocator.*, element.data);
+                }
+
+                // Reverse, due to stack precedence
+                var reversed = try std.ArrayList(i64).initCapacity(self.allocator.*, len);
+                defer reversed.deinit(self.allocator.*);
+
+                for (0..len) |_| {
+                    try reversed.append(self.allocator.*, elements.pop().?);
+                }
+
+                // Last element is tag for Bsexp
+
+                const alloc_str = gc.alloc_string(tag.len);
+                const content_ptr = gc.get_object_content_ptr(alloc_str).?;
+
+                const to_data = util.TO_DATA(content_ptr);
+                const contents: [*c]u8 = util.contents(to_data);
+
+                @memcpy(contents, tag);
+
+                contents[tag.len] = 0;
+
+                var obj = Object.from_ptr(contents);
+
+                try reversed.append(self.allocator.*, obj.data);
+
+                const len_64: i64 = @intCast(len);
+
+                const sexp_ptr = Bsexp(reversed.items.ptr, rcommon.BOX(len_64)).?;
+
+                try self.push(Object.from_ptr(sexp_ptr));
+
+                // const tag = self.bf.string_table.items[@intCast(s_index)];
+                // const alloc = gc.alloc_sexp(@intCast(len));
+                // const content = gc.get_object_content_ptr(alloc).?;
+                // const mut_content: [*c]i64 = @ptrCast(@alignCast(content));
+
+                // // Fill sexp
+                // const s_exp = gc.TO_SEXP(content);
+                // s_exp.*.tag = @intCast(@intFromPtr(tag.ptr));
+
+                // for (0..len) |i| {
+                //     const el = mut_content + i;
+                //     el.* = reversed.pop().?;
+                // }
+
+                // try self.push(Object.from_ptr(content));
+            },
             // else => unreachable,
         }
     }
@@ -669,6 +774,10 @@ pub const Interpreter = struct {
                 } },
                 0x1 => bt.Instruction{ .STRING = .{
                     .index = try self.next(i32),
+                } },
+                0x2 => bt.Instruction{ .SEXP = .{
+                    .s_index = try self.next(i32),
+                    .n_members = try self.next(i32),
                 } },
                 0x3 => bt.Instruction.STI,
                 0x4 => bt.Instruction.STA,

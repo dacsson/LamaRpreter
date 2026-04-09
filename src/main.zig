@@ -39,6 +39,10 @@ pub fn main() !void {
 
         std.debug.print("Found {d} instructions\n", .{instructions.items.len});
 
+        for (instructions.items) |instruction| {
+            std.debug.print("Instruction: {}\n", .{instruction});
+        }
+
         return;
     } else if (args.len == 2) {
         const file_path = args[1];

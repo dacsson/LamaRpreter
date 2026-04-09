@@ -15,10 +15,13 @@ const ObjectError = error{
 /// number of wrappers + forced alignemt for gc
 pub const Object = struct {
     data: i64 align(16),
+    is_int: bool,
 
     /// Stores raw integer value
     pub fn from_int(x: i64) Object {
-        return Object{ .data = x };
+        // Make sure runtime detects it as unboxed
+
+        return Object{ .data = x, .is_int = true };
     }
 
     /// Creates a c-compatible string ptr, wrapped in an
@@ -37,7 +40,7 @@ pub const Object = struct {
     pub fn from_ptr(ptr: *anyopaque) Object {
         const as_int = @intFromPtr(ptr);
         const as_long: i64 = @intCast(as_int);
-        return Object{ .data = as_long };
+        return Object{ .data = as_long, .is_int = false };
     }
 
     pub fn unbox(self: *Object) Object {
@@ -87,6 +90,11 @@ pub const Object = struct {
                 const content: [*c]u8 = util.contents(as_data);
                 return Object.from_int(@intCast(content[index]));
             },
+            gc.ARRAY => {
+                const content: [*c]i64 = @ptrCast(@alignCast(util.contents(as_data)));
+                const el = content + index;
+                return Object.from_int(el.*);
+            },
             else => @panic("unimplemented!"),
         }
 
@@ -112,8 +120,94 @@ pub const Object = struct {
                 const content: [*c]u8 = util.contents(as_data);
                 content[index] = @intCast(value.data);
             },
+            gc.ARRAY => {
+                const content: [*c]i64 = @ptrCast(@alignCast(util.contents(as_data)));
+                const el = content + index;
+                el.* = value.data;
+            },
             else => @panic("unimplemented!"),
         }
+    }
+
+    pub fn to_string(self: *Object, allocator: std.mem.Allocator) ![]u8 {
+        // Ints are always unboxed
+        if (self.is_int) {
+            return try std.fmt.allocPrint(allocator, "{d}", .{self.data});
+        }
+
+        util.dbgs("agregate to_string self {} | {}\n", .{ self, gc.UNBOXED(self.data) });
+
+        if (!self.is_aggregate()) {
+            return ObjectError.InvalidType;
+        }
+
+        const as_data = util.TO_DATA(self.data);
+        const len = gc.LEN(as_data.*.data_header);
+        var str = std.ArrayList(u8).empty;
+        defer str.deinit(allocator);
+
+        switch (self.get_type()) {
+            gc.STRING => {
+                const content: [*c]u8 = util.contents(as_data);
+                const to_z_string: []u8 = std.mem.span(content);
+
+                try str.appendSlice(allocator, "\"");
+                try str.appendSlice(allocator, to_z_string);
+                try str.appendSlice(allocator, "\"");
+
+                return str.toOwnedSlice(allocator);
+            },
+            gc.ARRAY => {
+                const content: [*c]i64 = @ptrCast(@alignCast(util.contents(as_data)));
+
+                const slice = content[0..len];
+                util.dbgs("array to_string slice {any}\n", .{slice});
+
+                try str.appendSlice(allocator, "[");
+
+                util.dbgs("array to_string len {d}\n", .{len});
+
+                for (0..len) |index| {
+                    var obj_el = Object.from_int(slice[index]);
+                    util.dbgs("array to_string el {d}\n", .{slice[index]});
+                    const to_str = try obj_el.to_string(allocator);
+                    try str.appendSlice(allocator, to_str);
+                    if (index != len - 1) {
+                        try str.appendSlice(allocator, ", ");
+                    }
+                }
+                try str.appendSlice(allocator, "]");
+
+                return str.toOwnedSlice(allocator);
+            },
+            gc.SEXP => {
+                const content: [*c]i64 = @ptrCast(@alignCast(util.contents(as_data)));
+
+                const slice = content[0..len];
+                util.dbgs("sexp to_string slice {any}\n", .{slice});
+
+                try str.appendSlice(allocator, "(");
+
+                util.dbgs("array to_string len {d}\n", .{len});
+
+                for (0..len) |index| {
+                    const slice_index: usize = @intCast(slice[index]);
+                    var obj_el = Object.from_ptr(@ptrFromInt(slice_index));
+                    util.dbgs("array to_string el {d}\n", .{slice[index]});
+                    const to_str = try obj_el.to_string(allocator);
+                    try str.appendSlice(allocator, to_str);
+                    if (index != len - 1) {
+                        try str.appendSlice(allocator, ", ");
+                    }
+                }
+                try str.appendSlice(allocator, ")");
+
+                return str.toOwnedSlice(allocator);
+            },
+            else => @panic("unimplemented!"),
+        }
+
+        unreachable;
     }
 
     pub fn UNBOXED(x: anytype) @TypeOf(__helpers.cast(c_long, x) & @as(c_int, 1)) {
